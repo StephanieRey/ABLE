@@ -1,7 +1,6 @@
 function[cellMasks, timeSeries] = segment(phi_0, video, radius, algorithmPars)
  
 % Code written by Stephanie Reynolds 12/09/2016.
-% Sub-functions for regularization 
 
 %%%%%%%%%%%%% INPUTS %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

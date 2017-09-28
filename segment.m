@@ -1,98 +1,80 @@
-function[cellMasks, timeSeries] = segment(phi_0, video, radius, algorithmPars)
- 
-% Code written by Stephanie Reynolds 12/09/2016.
-
-%%%%%%%%%%%%% INPUTS %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-% phi_0         : M x N x K initialsation, where M x N is the size of one 
-%                 frame of the video.  Each sheet phi_0(:,:,ii) is the  
-%                 initialisation of one ROI. phi_0(x,y,ii) < 0  if pixel 
-%                 (x,y) is in the interior of ROI ii, and phi_0(x,y,ii) > 0  
-%                 if pixel (x,y) is in the exterior.
-% video         : M x N x T video to be segmented.
-% radius        : Radius of a cell (integer, units are pixels).
-% algorithmPars : Structure defining optional algorithm parameters. 
-                      
-%%%%%%%%%%%%% OUTPUTS %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-% cellMasks     : M x N x K' array. Each sheet cellMasks(:,:,ii) is the  
-%                 binary mask of one detected ROI. 
-% timeSeries    : average time course of each detected ROI.
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-%%%%%%%%%%%%%% ALGORITHM PARAMETERS %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+function[cellMasks, cellTimeSeries, nhbdTimeSeries] = ...
+                               segment(phi_0, video, radius, options)
+     
+% AUTHOR: Stephanie Reynolds (25/09/2017)
+%
+% REFERENCE: Reynolds et al. (2016) ABLE: an activity-based level set 
+% segmentation algorithm for two-photon calcium imaging data. eNeuro
+%
+% OVERVIEW: This function contains the segmentation algorithm. 
+%
+%%%%%%%%%%%%%%%   INPUTS    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% phi_0           MxNxK array, where K is the number of initialised ROIs.
+%                 each sheet (phi_0(:,:,ii)) is -1 when a pixel is in the i-th ROI, 
+%                 and equal to 1 when a pixel is not in the i-th ROI
+% video           MxNxT video. 
+% radius          Radius of a cell
+% options         Variable of type struct. See documentation. 
+%
+%%%%%%%%%%%%%%%   OUTPUTS    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% cellMasks       MxNxK' array, where K is the number of segmented ROIs.
+%                 each sheet (cellMasks(:,:,i)) is 1 when a pixel is in the i-th ROI, 
+%                 and equal to 0 when a pixel is not in the i-th ROI
+% timeSeries      K'xT array, where K is the number of segmented ROIs.
+%                 Each row (timeSeries(i,:)) contains the vector of
+%                 temporal activity from the i-th segmented cell. 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
 
-if isfield(algorithmPars, 'delta')
-    delta  = algorithmPars.delta;
-else
-    delta  = 1;
-end
-if isfield(algorithmPars, 'bandWidth')
-    bandWidth  = algorithmPars.bandWidth;
-else
-    bandWidth  = 2 * radius;
-end
-if isfield(algorithmPars, 'timestep')
-    timestep  = algorithmPars.timestep;
-else
-    timestep  = 10;
-end
-if isfield(algorithmPars, 'lambda')
-    lambda = algorithmPars.lambda / timestep;
+
+%%%% Fixed algorithm parameters                       
+c0                 = 3;
+epsilon            = 2;
+timestep           = 10;
+delta              = 1;
+mu                 = 0.2/timestep;
+noChangeNum        = 20;
+bandWidth          = 3 * radius;
+
+%%% Optional arguments  
+if isfield(options, 'lambda')
+    lambda = options.lambda / timestep;
 else
     lambda = 100 / timestep;
 end
-if isfield(algorithmPars, 'minimumSize')
-    minimumSize = algorithmPars.minimumSize;
+if ~isfield(options, 'metric')
+    options.metric = 'corr';
+end
+if isfield(options, 'minimumSize')
+    minimumSize = options.minimumSize;
 else
     minimumSize  = 3; 
 end 
-if isfield(algorithmPars, 'maximumSize')
-    maximumSize = algorithmPars.maximumSize;
+if isfield(options, 'maximumSize')
+    maximumSize = options.maximumSize;
 else
     maximumSize  = round(pi * radius^2 * 4); 
 end 
-if isfield(algorithmPars, 'noChangeNum')
-    noChangeNum      = algorithmPars.noChangeNum;
-else
-    noChangeNum      = 40;
-end
-if isfield(algorithmPars, 'overlapSaturation')
-    overlapSaturation = algorithmPars.overlapSaturation;
-else
-    overlapSaturation = 0;
-end
-if isfield(algorithmPars, 'mergeCorr')
-    mergeCorr = algorithmPars.mergeCorr;
-elseif isfield(algorithmPars, 'snr')
+if isfield(options, 'mergeCorr')
+    mergeCorr = options.mergeCorr;
+elseif isfield(options, 'snr')
     mergeCorr = 0.8/(1+(10^(-snr/10)));
 else
     mergeCorr = 0.8;
 end
-if isfield(algorithmPars, 'notifications_on')
-    notifications_on  = algorithmPars.notifications_on;
-else
-    notifications_on  = 0;
-end
-if isfield(algorithmPars, 'maxIt')
-    maxIt  = algorithmPars.maxIt;
+if isfield(options, 'mergeTime')
+    mergeTime = options.mergeTime;
+elseif strcmp(options.metric, 'corr')
+    mergeTime = 'during';
+else 
+    mergeTime = 'atEnd';
+end 
+if isfield(options, 'maxIt')
+    maxIt  = options.maxIt;
 else
     maxIt  = 150;
 end 
 
-%%%% Fixed algorithm parameters    
-mu            = 0.2/timestep;
-c0            = 3;
-epsilon       = 2;
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%                   
-%%%%%%%% Initialise %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
+% Initialise variables
 it             = 1;
 t_len          = size(video,3);
 cell_num       = size(phi_0,3);
@@ -107,6 +89,7 @@ se_narrowband  = strel('square', round(bandWidth));
 se_overlap     = strel('square', ceil(radius/2));
 video_reshaped = reshape(video,[video_dim(1)*video_dim(2)*t_len,1,1]);
 mods           = (0:1:(t_len - 1))*video_dim(1)*video_dim(2);
+merge_counter  = 1;
           
 %%%%%%%%%   Initialise time series, phi and narrowband of each cell   %%%%%
 ii = 1;
@@ -123,47 +106,38 @@ while ii <= size(phi,3)
         region(:,:,ii)         = [];
         active(ii)             = [];
         activity(ii, :)        = [];
-       
-        cellIndex(ii)          = [];
-        if notifications_on
-            disp(['Removed ROI ',num2str(ii), ' too similar too background.']); 
-        end
+        cellIndex(ii)          = [];       
    else
        ii                   = ii + 1;
    end
     
 end
- 
+
+nhbdTimeSeries = zeros(cell_num, t_len);
+
+
 %%% If we're plotting progress, initialise the plots
-if isfield(algorithmPars, 'plot_progress')
-    figure;
-    if isfield(algorithmPars, 'plot_multiple')
-        plot_multiple  = algorithmPars.plot_multiple;
+if isfield(options, 'plot_progress')
+    figure('units','normalized','outerposition',[0 0 1 1])
+    corrIm = options.corrIm;
+    meanIm = options.meanIm;
+    if isfield(options, 'cell_to_monitor')
+        cell_to_monitor  = options.cell_to_monitor;
     else
-        plot_multiple  = 1;
-    end
-    corrIm = algorithmPars.corrIm;
-    meanIm = algorithmPars.meanIm;
-    if isfield(algorithmPars, 'cell_to_monitor')
-        cell_to_monitor  = algorithmPars.cell_to_monitor;
-    else
-        cell_to_monitor  = 1;
+        cell_to_monitor  = round(size(phi_0,3)/2);
     end
     ncols = 5;
     nrows = 4;
 end
  
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% UPDATE: While iterations less than maximum and cells active %%%%%%%%%%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%tic
-while and(it < maxIt, any(active))
+while and(it <= maxIt, any(active))
      
     phi   = NeumannBoundCond(phi, video_dim); % Make phi satisfy neumann boundary conditions
     ii    = 1;
     
     % Are any cells touching and v. correlated? If yes, merge them
-    if and(isfield(algorithmPars, 'mergeDuring'), length(cellIndex) > 1)
+    if and(strcmp(mergeTime, 'during'), length(cellIndex) > 1)
         correlation       = corrcoef(timeSeries');
         correlation       = tril(correlation, -1); % get rid of duplicates (it is symmetric)
         [p, q]            = find(correlation > mergeCorr); 
@@ -174,9 +148,10 @@ while and(it < maxIt, any(active))
                            imdilate(phi(:,:,q(1))<0,se_overlap));
             if any(overlap(:))
                 ordering      = sort([p(1),q(1)]); % we merge to the first one
-                merge_remove = ordering(2); 
-                merge_keep   = ordering(1);
-              
+                merge_remove  = ordering(2); 
+                merge_keep    = ordering(1);
+                merge_counter = merge_counter + 1;
+
                 [active, activity, phi, region,...
                  timeSeries, cellIndex] =...
                  merge(merge_keep, merge_remove, phi, c0, timeSeries,...
@@ -224,15 +199,14 @@ while and(it < maxIt, any(active))
            evaluate_idx     = diracPhi > 0;
            onlyThisMask     = and(~otherCells, phiUpdate<0);
            timeSeries(ii,:) = extractTimeSeries(onlyThisMask, mods,...
-                                                video_reshaped, t_len);
+                                                     video_reshaped, t_len);
            
             
            if nnz(evaluate_idx)
                 [similarityVelocity] = ...
                 cellSimilarityVelocity(video_dim, phi, n, ii, evaluate_idx,...
                                        mods, video_reshaped,  t_len, ...
-                                       timeSeries, overlapSaturation,...
-                                       otherCells);
+                                       timeSeries, otherCells);
            else
                 similarityVelocity = zeros(size(diracPhi));
            end
@@ -256,12 +230,13 @@ while and(it < maxIt, any(active))
                                     lambda*diracPhi.*...
                                     similarityVelocity);
                                 
-           degenerate   = ~any(phiUpdate(:)<0);
+           remove       = ~any(phiUpdate(:)<0);
            onlyThisMask = and(~otherCells, phiUpdate<0);
            mask_size    = nnz(phi(:,:,ii)<0);                            
  
            
-           if and(and(~degenerate, any(onlyThisMask(:))), mask_size < maximumSize)
+           if and(and(~remove, any(onlyThisMask(:))),...
+                  and(mask_size < maximumSize, mask_size > minimumSize))
  
                %%% Update stored values
                changed            = nnz(or(and(phi(:,:,ii)<0, phiUpdate>0),...
@@ -269,39 +244,13 @@ while and(it < maxIt, any(active))
                activity(ii,:)     = [activity(ii,2:end), changed];
                phi(:,:,ii)        = phiUpdate; 
  
-               %%% If it has converged or is too big, then STOP (but don't remove).                                          
+               %%% If converged, stop it
                if and(it > noChangeNum, activity(ii,:) < delta)
-                    if mask_size < minimumSize
-                        cellIndex(ii)         = [];
-                        phi_removed           = 1;
-                        phi(:,:,ii)           = [];
-                        timeSeries(ii,:)      = [];
-                        active(ii)            = [];
-                        activity(ii, :)       = [];
-                        region(:,:,ii)        = [];
-                        if notifications_on
-                            disp(['Removed ROI ',num2str(ii),' final size too small']);
-                        end
-                    else
-                        active(ii)       = 0;
-                        timeSeries(ii,:) = extractTimeSeries(onlyThisMask, mods,video_reshaped, t_len);
-                        
-                        if notifications_on
-                            disp(['ROI ', num2str(ii), ' converged.']);
-                        end
-                    end
+                    active(ii)       = 0;
+                    timeSeries(ii,:) = extractTimeSeries(onlyThisMask, mods,video_reshaped, t_len);
+                    nhbdTimeSeries(cellIndex(ii),:) = n;
                end
-           else %%% Is update degenerate? Does this mask entirely overlap with another or is it too too small? If so remove.
-               %%% Display why ROI was removed
-               if notifications_on
-                   if ~any(onlyThisMask(:))
-                      disp(['Removed ROI ',num2str(ii), ' completely overlapping.']);
-                   elseif mask_size > maximumSize
-                       disp(['Removed ROI ',num2str(ii), ' outsized.']);
-                   else
-                       disp(['Removed ROI ',num2str(ii), ' degenerate.']);
-                   end
-               end
+           else 
                cellIndex(ii)        = [];
                phi_removed          = 1;
                phi(:,:,ii)          = [];
@@ -310,8 +259,8 @@ while and(it < maxIt, any(active))
                active(ii)           = [];
                activity(ii, :)      = [];
            end
-           if isfield(algorithmPars, 'plot_progress')
-               if and(mod(it, plot_multiple) == (plot_multiple-1), cellIndex(ii) == cell_to_monitor)
+           if isfield(options, 'plot_progress')
+               if cellIndex(ii) == cell_to_monitor
                       updatePlot(ii, video, phi, radius, nrows, ncols, corrIm,...
                          meanIm, onlyThisMask, nhbd, region, diracPhi,...
                          similarityVelocity, regularisationVelocity,...
@@ -320,10 +269,18 @@ while and(it < maxIt, any(active))
                       drawnow;
                end
            end 
-                     
+            
+           %%% If it's the final iteration, store the neighbouring ts
+           if it == maxIt
+               cellIndex(ii)
+               nhbdTimeSeries(cellIndex(ii),:) = n;
+           end
+           
+           
            if ~phi_removed
                ii = ii + 1;
            end
+            
            
        else
            %%%%% Update time series if any cell has moved into it
@@ -338,18 +295,12 @@ while and(it < maxIt, any(active))
        end
 
     end
-    %toc;
-    if notifications_on
-        disp(['Iteration ', num2str(it)]);
-    end
+    disp(['Iteration ', num2str(it)]);
     it = it + 1; 
-     
 end
-
-it = it - 1;
  
 % Are any cells touching and v. correlated? If yes, merge them
-if and(isfield(algorithmPars, 'mergeAtEnd'), length(cellIndex) > 1)
+if and(strcmp(mergeTime, 'atEnd'), length(cellIndex) > 1)
     correlation       = corrcoef(timeSeries');
     correlation       = tril(correlation, -1); % get rid of duplicates (it is symmetric)
     [p, q]            = find(correlation > mergeCorr); 
@@ -360,10 +311,10 @@ if and(isfield(algorithmPars, 'mergeAtEnd'), length(cellIndex) > 1)
                        imdilate(phi(:,:,q(1))<0,se_overlap));
         if any(overlap(:))
             ordering      = sort([p(1),q(1)]); % we merge to the first one
-            merge_remove = ordering(2); 
-            merge_keep   = ordering(1);
+            merge_remove  = ordering(2); 
+            merge_keep    = ordering(1);
+            merge_counter = merge_counter + 1;
 
-           
             [active, activity, phi, region,...
              timeSeries, cellIndex] =...
              merge(merge_keep, merge_remove, phi, c0, timeSeries,...
@@ -391,18 +342,11 @@ if and(isfield(algorithmPars, 'mergeAtEnd'), length(cellIndex) > 1)
     end    
 end   
 
-
-%%% Remove any that are too small or too big
-nnzs                      = squeeze(sum(sum(phi<0,1),2));
-outsized                  = or(nnzs<minimumSize, nnzs>maximumSize);
-phi(:,:,outsized)         = [];
-timeSeries(outsized,:)    = [];
-
-
+nhbdTimeSeries = nhbdTimeSeries(cellIndex,:);
+cellTimeSeries = timeSeries;
+cellMasks      = phi < 0;
 disp(['Finished after ', num2str(it - 1), 'iterations']);
-phi([1,end], :, :) = c0;
-phi(:, [1,end], :) = c0;
-cellMasks        = phi<0;    
+
  
 
 function [] = updatePlot(ii, video, phi, radius, nrows, ncols, corrIm, meanIm,...
@@ -422,7 +366,7 @@ function [] = updatePlot(ii, video, phi, radius, nrows, ncols, corrIm, meanIm,..
     %%%% Mean image plot
     h(1) = subplot(nrows, ncols, 1);
     imagesc(corrIm(l_x:u_x,l_y:u_y));
-    title('Corr image')
+    title('Correlation image')
  
     %%%% Mean image and initial cell interior
     h(2) = subplot(nrows, ncols, 2);
@@ -431,86 +375,95 @@ function [] = updatePlot(ii, video, phi, radius, nrows, ncols, corrIm, meanIm,..
  
     %%%% Mean image and current cell interior
     h(3) = subplot(nrows, ncols, 3);   
-    imshowpair(corrIm(l_x:u_x,l_y:u_y), phi(l_x:u_x,l_y:u_y,ii)<0)
-    title(['Current interior ',num2str(ii)]);
+    imshowpair(corrIm(l_x:u_x,l_y:u_y), phi(l_x:u_x,l_y:u_y,ii)<0,...
+               'ColorChannels', [1, 2, 2], 'Scaling', 'none')
+    title('Interior');
  
     %%%% Mean image and current cell interior
     h(4) = subplot(nrows, ncols, 4);   
-    imshowpair(corrIm(l_x:u_x,l_y:u_y), onlyThisMask(l_x:u_x,l_y:u_y))
-    title(['Current solo interior ',num2str(ii)]);
+    imshowpair(corrIm(l_x:u_x,l_y:u_y), onlyThisMask(l_x:u_x,l_y:u_y),...
+               'ColorChannels', [1, 2, 2], 'Scaling', 'none')
+    title('Interior excluding other cells');
  
      
     %%%% Mean image and narrowband around cell
     h(5) = subplot(nrows,ncols,5);   
-    imshowpair(corrIm(l_x:u_x,l_y:u_y), nhbd(l_x:u_x,l_y:u_y))
-    title('Current narrowband')
+    imshowpair(corrIm(l_x:u_x,l_y:u_y), nhbd(l_x:u_x,l_y:u_y),...
+               'ColorChannels', [1, 2, 2], 'Scaling', 'none')
+    title('Narrowband')
  
     %%%% Phi in 3D
     subplot(nrows,ncols,6);
     mesh(-phi(l_x:u_x,l_y:u_y,ii));   % for a better view, the LSF is displayed upside down
     hold on;  contour(phi(l_x:u_x,l_y:u_y,ii), [0,0], 'r','LineWidth',2);
-    title('Current level set function');
+    title('Level set function');
  
     %%%% Other cell interiors
     if size(phi,3)>1
         h(6) = subplot(nrows, ncols, 7);   
-        imshowpair(corrIm(l_x:u_x,l_y:u_y), any(phi(l_x:u_x,l_y:u_y,1:end~=ii)<0,3))
-        title('Other cells (inactive and active)');
+        imshowpair(corrIm(l_x:u_x,l_y:u_y), any(phi(l_x:u_x,l_y:u_y,1:end~=ii)<0,3),...
+               'ColorChannels', [1, 2, 2], 'Scaling', 'none')
+        title('Other cells');
     end
      
     %%%% Cell similarity velocity    
     h(7) = subplot(nrows,ncols,8);
-    V    = region(l_x:u_x,l_y:u_y,ii).*...
+    V    = lambda * region(l_x:u_x,l_y:u_y,ii).*...
            diracPhi(l_x:u_x,l_y:u_y).*similarityVelocity(l_x:u_x,l_y:u_y);
     imagesc(V);
-    title('-dirac * sim vel');
-    colorbar;
+    c = colorbar;
     cmap           = cmocean('balance');
     u_lim = max(max(abs(V(:))),eps);
     set(gca,'CLim',[-u_lim u_lim])
     colormap(cmap);
-    title('Cell based velocity');
+    title('Data-driven velocity');
     set(gca,'xtick',[])
     set(gca,'ytick',[])
- 
+    set(c, 'ytick', 0);
+    
     %%%% Regularisation velocity
     h(8) = subplot(nrows,ncols,9);
-    V = mu*region(l_x:u_x,l_y:u_y,ii).*...
+    V = -mu*region(l_x:u_x,l_y:u_y,ii).*...
            regularisationVelocity(l_x:u_x,l_y:u_y);
     imagesc(V);
     u_lim = max(max(abs(V(:))),eps);
     set(gca,'CLim',[-u_lim u_lim])
-    colorbar;
-    title('mu * Regularisation velocity');
+    c = colorbar;
+    title('Regularisation velocity');
     set(gca,'xtick',[])
     set(gca,'ytick',[])
- 
+    set(c, 'ytick', 0);
+    
     %%%% Combined velocity
     h(9) = subplot(nrows, ncols, 10);
-    V = region(l_x:u_x,l_y:u_y,ii).*...
+    V = -region(l_x:u_x,l_y:u_y,ii).*...
                                     (mu * regularisationVelocity(l_x:u_x,l_y:u_y) - ...
-                                     diracPhi(l_x:u_x,l_y:u_y).*...
+                                     lambda * diracPhi(l_x:u_x,l_y:u_y).*...
                                      (similarityVelocity(l_x:u_x,l_y:u_y))); 
     imagesc(V);
     u_lim = max(max(abs(V(:))),eps);
     set(gca,'CLim',[-u_lim u_lim])
-    colorbar;
+    c = colorbar;
+    set(c, 'ytick', 0);
     title('Combined velocity');
      set(gca,'xtick',[])
     set(gca,'ytick',[])    
  
     %%%% Time series plot: time series of cell interior and narrowband
     subplot(nrows,ncols, 2*ncols + (1:ncols));
-    n_ts    = extractTimeSeries(region(:,:,ii), mods, video_reshaped, t_len);
+    n_ts    = extractTimeSeries(nhbd, mods, video_reshaped, t_len);
     ts_plot = plotProperHeight( [timeSeries(ii,:)./norm(timeSeries(ii,:));...
                                 n_ts./norm(n_ts)] );
     plot(t, ts_plot')
     hold on; 
-    xlabel( 'Time(s)' );
-    ylabel( 'DF/F' );
-    legend('Interior','Narrowband');
-    title(['Region time series, it = ',num2str(it), ' cell num = ',...
-           num2str(ii)]);
+    legend('Interior','Narrowband', 'Orientation', 'Horizontal');
+    legend boxoff
+    set(gca, 'xtick', []);
+    set(gca, 'ytick', []);
+    xl = xlabel('Time (s)');
+    set(xl, 'position', get(xl,'position')+[0,0.01,0]);
+    title(['Subregion time series, iteration number: ',num2str(it)]);
+    box off
     hold off;
  
     %%%% Activity plot: how many pixels joined and left contour
@@ -520,12 +473,13 @@ function [] = updatePlot(ii, video, phi, radius, nrows, ncols, corrIm, meanIm,..
     line([0, noChangeNum],[delta, delta], 'LineStyle','- -','Color','r');
     xlabel( ['Previous ',num2str(noChangeNum),' iterations'] );
     ylabel( 'Number of pixels' );
-    title(['No. of pixels on contour that changed, it = ',num2str(it)])
+    title('Num. pixels that left or entered cell per iteration');
     hold off;
+    box off;
      
     linkaxes([h(1), h(2), h(3), h(4), h(5), h(6), h(7), h(8) ]);
     drawnow;
-     
+    
 end
  
  
@@ -533,8 +487,7 @@ function [V] = cellSimilarityVelocity(video_dim, phi, n,...
                                     ii, narrowband,...
                                     mods,...
                                     video_reshaped,...
-                                    t_len, timeSeries, overlapSaturation,...
-                                    otherCells) 
+                                    t_len, timeSeries, otherCells) 
     
 
     V                     = zeros(video_dim);
@@ -566,15 +519,7 @@ function [V] = cellSimilarityVelocity(video_dim, phi, n,...
             J(J == ii)     = [];
             b              = sum(timeSeries(J,:),1);  % time series of cells that x is currently in
             x              = squeeze(raw_x_rs(j,:));     % time series of current pixel
- 
-            if overlapSaturation 
-                a_plus_b = min(a+b,1);
-            else
-                a_plus_b = a + b;
-            end
-            
-            %a_plus_b = a_plus_b/max(a_plus_b(:));
-            
+            a_plus_b       = a + b;         
             V(loc(j))      = compare(x, b, a_plus_b);
             
         end
@@ -584,12 +529,13 @@ end
  
 function dist = compare(x, a_out, a_in)
   
-    dist = zeros(size(x,1),1,'single');
+   dist = zeros(size(x,1),1,'single');
    
-   if strcmp(algorithmPars.metric, 'corr')
+   if strcmp(options.metric, 'corr')
        dist = corr(x', a_in') - corr(x', a_out');
-   elseif strcmp(algorithmPars.metric, 'euclid')
-       dist = sum(a_out.^2) - sum(a_in.^2) + 2.* x * (a_in-a_out)';
+   elseif strcmp(options.metric, 'euclid')
+       dist = sum(bsxfun(@minus, x, a_out).^2,2) - ...
+              sum(bsxfun(@minus, x, a_in).^2,2);
        dist = dist./length(a_in);
    end
    
@@ -598,13 +544,12 @@ end
  
  
 function V = distanceRegularisation(phi)
-% This Matlab code implements an edge-based active contour model as an application of the Distance Regularized Level Set Evolution (DRLSE) formulation in Li et al's paper: C. Li, C. Xu, C. Gui, M. D. Fox, "Distance Regularized Level Set Evolution and Its Application to Image Segmentation",  IEEE Trans. Image Processing, vol. 19 (12), pp.3243-3254, 2010.
-% Author: Chunming Li, all rights reserved
-% E-mail: lchunming@gmail.com   
-%         li_chunming@hotmail.com 
-% URL:  http://www.imagecomputing.org/~cmli/         
+    % This Matlab code implements an edge-based active contour model as an application of the Distance Regularized Level Set Evolution (DRLSE) formulation in Li et al's paper: C. Li, C. Xu, C. Gui, M. D. Fox, "Distance Regularized Level Set Evolution and Its Application to Image Segmentation",  IEEE Trans. Image Processing, vol. 19 (12), pp.3243-3254, 2010.
+    % Author: Chunming Li, all rights reserved
+    % E-mail: lchunming@gmail.com   
+    %         li_chunming@hotmail.com 
+    % URL:  http://www.imagecomputing.org/~cmli/    
     [phi_x,phi_y] = gradient(phi);
- 
     s   = sqrt(phi_x.^2 + phi_y.^2);
     a   = (s>=0) & (s<=1);
     b   = (s>1);
@@ -616,34 +561,34 @@ function V = distanceRegularisation(phi)
 end
  
 function f = div(nx,ny)
-% This Matlab code implements an edge-based active contour model as an application of the Distance Regularized Level Set Evolution (DRLSE) formulation in Li et al's paper: C. Li, C. Xu, C. Gui, M. D. Fox, "Distance Regularized Level Set Evolution and Its Application to Image Segmentation",  IEEE Trans. Image Processing, vol. 19 (12), pp.3243-3254, 2010.
-% Author: Chunming Li, all rights reserved
-% E-mail: lchunming@gmail.com   
-%         li_chunming@hotmail.com 
-% URL:  http://www.imagecomputing.org/~cmli/    
+    % This Matlab code implements an edge-based active contour model as an application of the Distance Regularized Level Set Evolution (DRLSE) formulation in Li et al's paper: C. Li, C. Xu, C. Gui, M. D. Fox, "Distance Regularized Level Set Evolution and Its Application to Image Segmentation",  IEEE Trans. Image Processing, vol. 19 (12), pp.3243-3254, 2010.
+    % Author: Chunming Li, all rights reserved
+    % E-mail: lchunming@gmail.com   
+    %         li_chunming@hotmail.com 
+    % URL:  http://www.imagecomputing.org/~cmli/
     [nxx,~]=gradient(nx);  
     [~,nyy]=gradient(ny);
     f=nxx+nyy;
 end
  
 function f = Dirac(x, sigma)
-% This Matlab code implements an edge-based active contour model as an application of the Distance Regularized Level Set Evolution (DRLSE) formulation in Li et al's paper: C. Li, C. Xu, C. Gui, M. D. Fox, "Distance Regularized Level Set Evolution and Its Application to Image Segmentation",  IEEE Trans. Image Processing, vol. 19 (12), pp.3243-3254, 2010.
-% Author: Chunming Li, all rights reserved
-% E-mail: lchunming@gmail.com   
-%         li_chunming@hotmail.com 
-% URL:  http://www.imagecomputing.org/~cmli/
-f=(1/2/sigma)*(1+cos(pi*x/sigma));
-b = (x<=sigma) & (x>=-sigma);
-f = f.*b;
+    % This Matlab code implements an edge-based active contour model as an application of the Distance Regularized Level Set Evolution (DRLSE) formulation in Li et al's paper: C. Li, C. Xu, C. Gui, M. D. Fox, "Distance Regularized Level Set Evolution and Its Application to Image Segmentation",  IEEE Trans. Image Processing, vol. 19 (12), pp.3243-3254, 2010.
+    % Author: Chunming Li, all rights reserved
+    % E-mail: lchunming@gmail.com   
+    %         li_chunming@hotmail.com 
+    % URL:  http://www.imagecomputing.org/~cmli/
+    f=(1/2/sigma)*(1+cos(pi*x/sigma));
+    b = (x<=sigma) & (x>=-sigma);
+    f = f.*b;
 end
  
  
-function g = NeumannBoundCond(f, video_dim)  
-% This Matlab code implements an edge-based active contour model as an application of the Distance Regularized Level Set Evolution (DRLSE) formulation in Li et al's paper: C. Li, C. Xu, C. Gui, M. D. Fox, "Distance Regularized Level Set Evolution and Its Application to Image Segmentation",  IEEE Trans. Image Processing, vol. 19 (12), pp.3243-3254, 2010.
-% Author: Chunming Li, all rights reserved
-% E-mail: lchunming@gmail.com   
-%         li_chunming@hotmail.com 
-% URL:  http://www.imagecomputing.org/~cmli/
+function g = NeumannBoundCond(f, video_dim)
+    % This Matlab code implements an edge-based active contour model as an application of the Distance Regularized Level Set Evolution (DRLSE) formulation in Li et al's paper: C. Li, C. Xu, C. Gui, M. D. Fox, "Distance Regularized Level Set Evolution and Its Application to Image Segmentation",  IEEE Trans. Image Processing, vol. 19 (12), pp.3243-3254, 2010.
+    % Author: Chunming Li, all rights reserved
+    % E-mail: lchunming@gmail.com   
+    %         li_chunming@hotmail.com 
+    % URL:  http://www.imagecomputing.org/~cmli/
     nrow = video_dim(1); ncol = video_dim(2);
     g = f;
     g([1 nrow],[1 ncol],:) = g([3 nrow-2],[3 ncol-2],:);  
@@ -686,18 +631,17 @@ function[active, activity, phi, region, timeSeries, cellIndex] =...
     activity(cellIndex == q, :) = [];
     cellIndex                   = setdiff(cellIndex, q);
      
-    if notifications_on
-        disp(['ROIs ',num2str(p), ' and ', num2str(q),' merged.']);
-    end
+    disp(['ROIs ',num2str(p), ' and ', num2str(q),' merged.']);
+  
 end
  
  
 function[sd] = maskToSignedDistanceFunction(phi, c0)
  
-sd        = double((phi > 0).*(bwdist(phi < 0)-0.5) - ...
-                   (phi < 0).*(bwdist(phi > 0)-0.5));  
-sd        = sd*c0;
-sd(sd>c0) = c0;
+sd         = double((phi > 0).*(bwdist(phi < 0)-0.5) - ...
+                    (phi < 0).*(bwdist(phi > 0)-0.5));  
+sd         = sd*c0;
+sd(sd>c0)  = c0;
 sd(sd<-c0) = -c0;
  
 end

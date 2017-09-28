@@ -1,67 +1,70 @@
-function[masks] = initialise(cellMetric, radius, alpha, options)
+function[masks] = initialise(metric, radius, alpha, options)
 
-%%%%% Initialise ROIs for algorithm %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% The initialisation procedure finds the peaks in the 2D summary image(s)
-% to identity ROIs in the video. This is done with an built-in fast MATLAB
-% image processing function 'imextendedmax'. We suppress peaks with
-% relative height above their neighbours less than alphaxsigma, where sigma
-% is the standard deviation of the summary image and alpha is a tuning 
-% parameter. We subsequently merge any sufficiently close and correlated 
-% ROIs, remove large ROIs (which tend to correspond to intensity 
-% inhomogeneities) and expand small ROIs. 
-% INPUTS
+% AUTHOR: Stephanie Reynolds (25/09/2017)
 %
-% cellMetric             :MxN summary image of video, usually pick avergae 
-%                         pixel cross-correlation - this metric shows up
-%                         cells well.
-% radius                 :expected radius of a cell
-% alpha                  :tuning parameter, peaks below alpha*sigma will be
-%                         suppressed.
-
-% OUPUTS
+% REFERENCE: Reynolds et al. (2016) ABLE: an activity-based level set 
+% segmentation algorithm for two-photon calcium imaging data. eNeuro
 %
-% masks                  :MxNxC array, where C is the number of ROIs found.
-%                         In each sheet (masks(:,:,ii)) -1 indicates that a
-%                         pixel is inside the ROI, +1 indicates that the
-%                         pixel is outside.
+% OVERVIEW: This function is used as the initialisation for the segmentation
+% algorithm. Peaks in the 2D summary image(s) are identified as candidate
+% ROIs. Peaks are found with an built-in MATLAB image processing function 
+% 'imextendedmax'. Peaks with relative height (with respect to their
+% neighbours) that are less than alpha x sigma are suppressed. Here, sigma is
+% the standard deviation of the summary image and alpha is a tuning 
+% parameter. 
+%
+%%%%%%%%%%%%%%%   INPUTS    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% metric                     MxN summary image of video, usually the
+%                            pixelwise cross-correlation (see crossCorr.m)
+% radius                     radius of a cell
+% alpha                      tuning parameter, peaks below alpha*sigma will be
+%                            suppressed
+% options                    A variable of type struct. In the following we
+%                            describe the fields of this struct. 
+% options.blur_radius        [Default: 1] If present, this is the radius of
+%                            blurring applied to the summary images. 
+%                            blurred with radius options.blur_radius.
+% options.secondary_metric   M x N array corresponding to a summary image,
+%                            e.g. the mean image. If this field is present, 
+%                            initialisation is  performed on both the first 
+%                            argument 'metric' and a second summary image. The value
+%                            options.second_alpha (the value of alpha for the
+%                            second summary image) must also be present. 
+%
+%%%%%%%%%%%%%%%   OUTPUTS   %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% masks                      MxNxK array, where K is the number of ROIs found.
+%                            In each sheet (masks(:,:,ii)): -1 indicates that a
+%                            pixel is inside the i-th ROI, +1 indicates that the
+%                            pixel is outside the i-th ROI.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-if isfield(options, 'expand_small')
-    expand_small = options.expand_small;
-else
-    expand_small = 0;
+dim     = size(metric);
+maxSize = round(pi * radius^2 * 1.5);
+
+% Blur the input image (so that only peaks wider than 1 pixel are detected)
+if isfield(options, 'blur_radius')
+    blur_radius =  options.blur_radius;
+else 
+    blur_radius = 1;
+end
+metric          = imgaussfilt(metric, blur_radius);
+
+% Find peaks of metric
+h                     = sqrt(nanvar(metric(:))); 
+metric(isnan(metric)) = 0;
+BW                    = imextendedmax(metric, alpha*h);
+
+% Find peaks of second metric, if required
+if isfield(options, 'secondary_metric')
+    secondaryMetric               = options.secondary_metric;
+    secondaryMetric               = imgaussfilt(secondaryMetric, blur_radius);
+    h                             = sqrt(nanvar(secondaryMetric(:))); 
+    secondaryMetric(isnan(secondaryMetric)) = 0;
+    alpha_2                       = options.second_alpha;
+    BW                            = or(BW, imextendedmax(secondaryMetric, alpha_2*h));
 end
 
-if isfield(options, 'blur')
-     cellMetric  = imgaussfilt(cellMetric, options.blur_radius);
-end
-dim             = size(cellMetric);
-if isfield(options, 'minSize')
-    minSize = options.minSize;
-else
-    minSize         = round(pi * radius^2 * 0.25);
-end
-if isfield(options, 'maxSize')
-    maxSize = options.maxSize;
-else
-    maxSize         = round(pi * radius^2 * 1.5);
-end
-
-
-%%%% Find peaks of cell metric
-h       = sqrt(nanvar(cellMetric(:))); 
-cellMetric(isnan(cellMetric)) = 0;
-BW      = imextendedmax(cellMetric, alpha*h);
-
-if isfield(options, 'second_metric')
-    bkgdMetric                    = options.bkgd_metric;
-    h          = sqrt(nanvar(bkgdMetric(:))); 
-    bkgdMetric(isnan(bkgdMetric)) = 0;
-    alpha_2    = options.second_alpha;
-    BW         = or(BW, imextendedmax(bkgdMetric, alpha_2*h));
-end
-
-%%%% Each 4-connected component is a contender region
+% Each 4-connected component is an ROI
 CC         = bwconncomp(BW, 4);
 obj_num    = CC.NumObjects;
 pixels     = CC.PixelIdxList;
@@ -72,25 +75,12 @@ for ii  = 1:CC.NumObjects
     masks(:,:,ii)    = mask;
 end
 
-%%% Remove any that are too large (these are likely to correspond to
-%%% intensity inhomogeneities).
+% Remove any that are too large 
 nnzs                          = squeeze(sum(sum(masks,1),2));
 masks(:,:,nnzs > maxSize)     = [];
-nnzs(nnzs > maxSize)          = [];
-obj_num                       = size(masks,3);
 
-if expand_small
-    %%%% Expand any that are too small
-    d        = options.expand_radius;
-    se       = strel('disk', d);
-    for ii = 1:obj_num
-        if nnzs(ii) < minSize
-            masks(:,:,ii) = imdilate(masks(:,:,ii), se);
-        end
-    end
-end
-
-masks = -1*masks + ~masks;
+% Final ROIs
+masks                         = -1*masks + ~masks;
 
 end
 

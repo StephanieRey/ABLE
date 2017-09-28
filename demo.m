@@ -3,7 +3,20 @@ clear all; close all; clc;
 addpath([pwd, '\dependencies\'])
 
 %% Load data
-load('video.mat');
+
+% video stored in chunks in order to comply with GitHub file size limits
+% load and concatenate video
+loc   = [pwd, '\video_files\'];
+N     = 1906;
+video = zeros(300, 300, N, 'uint16');
+len   = 191;
+for ii = 1:10
+   ids = (ii-1)*len + (1:len);
+   ids = ids(ids <= N);
+   load([loc, 'video_', num2str(ii)]);
+   video(:,:,ids) = vid;
+end
+
 radius = 7;
 meanIm = mean(video,3);      % mean image
 corrIm = crossCorr(video);   % correlation image
@@ -81,31 +94,44 @@ plotContoursOnSummaryImage(scaled_meanIm, masks, opts);
 title('Contours on mean image');
 
 %% example of small and large ROI
-small_ID = 17;
-large_ID = 147;
+T          = 1/8;
+t          = T:T:(N*T);
+line_width = 1.5;
+small_ID   = 17;
+large_ID   = 147;
 figure;
 opts.m = 2;
 opts.n = 4;
 opts.p = 1;
 plotContoursOnSummaryImage(corrIm, masks(:,:,small_ID), opts);
 axis([1, 40, 161, 200])
-title('small ROI');
+title('small ROI', 'FontSize', 18);
 subplot(2, 4, 2:4)
-plot(cell_ts(small_ID,:));
+plot(t, cell_ts(small_ID,:), 'LineWidth', line_width);
 hold on
-plot(nhbd_ts(small_ID,:));
-legend('Interior time series', 'Neighbourhood time series');
+plot(t, nhbd_ts(small_ID,:), 'LineWidth', line_width);
+xlabel('Time(s)', 'FontSize', 18);
+set(gca, 'xtick', 0:50:200)
+hdl = legend('Interior time series', 'Neighbourhood time series',...
+       'Location', 'northoutside', 'Orientation', 'Horizontal');
+set(hdl, 'FontSize', 18);
+set(gca, 'ytick', [])
 box off
 legend boxoff
 opts.p = 5;
 plotContoursOnSummaryImage(corrIm, masks(:,:,large_ID), opts);
 axis([161, 200, 21, 60])
-title('large ROI')
+title('large ROI', 'FontSize', 18);
 subplot(2, 4, 6:8)
-plot(cell_ts(large_ID,:));
+plot(t, cell_ts(large_ID,:), 'LineWidth', line_width);
 hold on
-plot(nhbd_ts(large_ID,:));
-legend('Interior time series', 'Neighbourhood time series');
+plot(t, nhbd_ts(large_ID,:), 'LineWidth', line_width);
+xlabel('Time(s)', 'FontSize', 18);
+set(gca, 'xtick', 0:50:200)
+set(gca, 'ytick', [])
+hdl = legend('Interior time series', 'Neighbourhood time series',...
+       'Location', 'northoutside', 'Orientation', 'Horizontal');
+set(hdl, 'FontSize', 18);
 box off
 legend boxoff
 

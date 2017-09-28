@@ -2,13 +2,13 @@ function[lambda] = tune_lambda(phi_0, video, radius,...
                                options, corrIm,...
                                meanIm)
                            
-% AUTHOR: Stephanie Reynolds (25/09/2017)
-%
-% REFERENCE: Reynolds et al. (2016) ABLE: an activity-based level set 
-% segmentation algorithm for two-photon calcium imaging data. eNeuro
-%
-% OVERVIEW: This function is used to tune the value of lambda on a small
-% section of the dataset. 
+% Author:      Stephanie Reynolds
+% Date:        25/09/2017
+% Supervisors: Pier Luigi Dragotti, Simon R Schultz
+% Overview:    This file enables a user to tune the value of lambda used in 
+%              the segmentation algorithm.
+% Reference:   Reynolds et al. (2016) ABLE: an activity-based level set 
+%              segmentation algorithm for two-photon calcium imaging data
 %
 %%%%%%%%%%%%%%%   INPUTS    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % algorithmPars           Structure of options for the segmentation

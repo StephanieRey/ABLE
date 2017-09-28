@@ -1,17 +1,19 @@
 function[masks] = initialise(metric, radius, alpha, options)
-
-% AUTHOR: Stephanie Reynolds (25/09/2017)
 %
-% REFERENCE: Reynolds et al. (2016) ABLE: an activity-based level set 
-% segmentation algorithm for two-photon calcium imaging data. eNeuro
+% Author:      Stephanie Reynolds
+% Date:        25/09/2017
+% Supervisors: Pier Luigi Dragotti, Simon R Schultz
+% Overview:    This function is used as the initialisation for the segmentation
+%              algorithm. Peaks in the 2D summary image(s) are identified 
+%              as candidate ROIs. Peaks are found with an built-in MATLAB 
+%              image processing function 'imextendedmax'. Peaks with 
+%              relative height (with respect to their neighbours) that are 
+%              less than alpha x sigma are suppressed. Here, sigma is
+%              the standard deviation of the summary image and alpha is a 
+%              tuning parameter. 
+% Reference:   Reynolds et al. (2016) ABLE: an activity-based level set 
+%              segmentation algorithm for two-photon calcium imaging data
 %
-% OVERVIEW: This function is used as the initialisation for the segmentation
-% algorithm. Peaks in the 2D summary image(s) are identified as candidate
-% ROIs. Peaks are found with an built-in MATLAB image processing function 
-% 'imextendedmax'. Peaks with relative height (with respect to their
-% neighbours) that are less than alpha x sigma are suppressed. Here, sigma is
-% the standard deviation of the summary image and alpha is a tuning 
-% parameter. 
 %
 %%%%%%%%%%%%%%%   INPUTS    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % metric                     MxN summary image of video, usually the

@@ -1,10 +1,13 @@
 function[alpha, phi_0] = tune_alpha(metric, radius, alpha, options)
 
-% AUTHOR: Stephanie Reynolds (25/09/2017)
+% Author:      Stephanie Reynolds
+% Date:        25/09/2017
+% Supervisors: Pier Luigi Dragotti, Simon R Schultz
+% Overview:    This file enables a user to tune the value of alpha used in 
+%              the initialisation algorithm.
+% Reference:   Reynolds et al. (2016) ABLE: an activity-based level set 
+%              segmentation algorithm for two-photon calcium imaging data
 %
-% OVERVIEW: This file enables a user to tune the value of alpha used in the
-% initialisation algorithm. Tuning stops when the user-input value of alpha
-% is the same as the existing value of alpha.
 %
 %%%%%%%%%%%%%%%   INPUTS    %%%%%%%%%%%%%%%%%%%%%%%%%%
 % alpha                 initial estimate of alpha, suggested value 0.5

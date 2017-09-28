@@ -1,12 +1,13 @@
 function[cellMasks, cellTimeSeries, nhbdTimeSeries] = ...
                                segment(phi_0, video, radius, options)
-     
-% AUTHOR: Stephanie Reynolds (25/09/2017)
+%     
+% Author:      Stephanie Reynolds
+% Date:        25/09/2017
+% Supervisors: Pier Luigi Dragotti, Simon R Schultz
+% Overview:    This function contains the segmentation algorithm. 
+% Reference:   Reynolds et al. (2016) ABLE: an activity-based level set 
+%              segmentation algorithm for two-photon calcium imaging data
 %
-% REFERENCE: Reynolds et al. (2016) ABLE: an activity-based level set 
-% segmentation algorithm for two-photon calcium imaging data. eNeuro
-%
-% OVERVIEW: This function contains the segmentation algorithm. 
 %
 %%%%%%%%%%%%%%%   INPUTS    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % phi_0           MxNxK array, where K is the number of initialised ROIs.
@@ -272,7 +273,6 @@ while and(it <= maxIt, any(active))
             
            %%% If it's the final iteration, store the neighbouring ts
            if it == maxIt
-               cellIndex(ii)
                nhbdTimeSeries(cellIndex(ii),:) = n;
            end
            

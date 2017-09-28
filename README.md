@@ -1,6 +1,6 @@
 # ABLE
 
-This repository contains the current MATLAB implementation of 'ABLE' (an Activity-Based LEvel set segmentation algorithm), which detects the location of neurons from two-photon calcium imaging data. For technical details, see the paper at https://doi.org/10.1101/190348. 
+This repository contains the current MATLAB implementation of 'ABLE' (an Activity-Based LEvel set segmentation algorithm), which detects the location of neurons from two-photon calcium imaging data. For technical details, see the [paper](https://doi.org/10.1101/190348). 
 
 ## Overview
 

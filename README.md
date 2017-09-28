@@ -4,7 +4,7 @@ This repository contains the current MATLAB implementation of 'ABLE' (an Activit
 
 ## Overview
 
-In our framework, multiple coupled active contours evolve, guided by a model-based cost function, to identify cell boundaries. An active contour seeks to partition the local region into two subregions, a cell interior and exterior, in which all pixels have maximally 'similar' temporal activity. To see an example of an active contour evolving to segment a cell, see [evolution_video.avi](https://github.com/stephanierey/ABLE/evolution_video.avi). 
+In our framework, multiple coupled active contours evolve, guided by a model-based cost function, to identify cell boundaries. An active contour seeks to partition the local region into two subregions, a cell interior and exterior, in which all pixels have maximally 'similar' temporal activity. To see an example of an active contour evolving to segment a cell, see [evolution_video.avi](ABLE/evolution_video.avi). 
 
 The algorithm is flexbile - we incorporate no prior assumptions regarding cell shape or temporal activity. This allows us to detect a [diverse array](https://github.com/stephanierey/ABLE/results_figures/large_and_small_ROIs.png) of ROIs, as illustrated in a demo on mouse in vivo imaging data. In this dataset, ABLE detects both cell bodies and cross-sections of dendrites. 
 

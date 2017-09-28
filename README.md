@@ -16,13 +16,9 @@ In this folder we provide a [demo](https://github.com/stephanierey/ABLE/demo.m) 
 
 Simon Peron, Jeremy Freeman, Vijay Iyer, Caiying Guo, Karel Svoboda (2015);  Volumetric calcium imaging data recorded during performance of a single whisker object localization task, sampling activity in the majority of the relevant superficial barrel cortex neurons (75 %, 12,000 neurons per mouse). CRCNS.org. [doi:10.6080/K0TB14TN](http://dx.doi.org/10.6080/K0TB14TN).
 
-## License
-
-This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md) file for details
-
 ## Acknowledgments
 
-* To regularize the Level Set functions we use Li et al.'s [DRLSE](http://dx.doi.org/10.1109/TIP.2010.2069690).
+* To regularize the Level Set functions during the update process, we use Li et al.'s [DRLSE](http://dx.doi.org/10.1109/TIP.2010.2069690).
 
 
 

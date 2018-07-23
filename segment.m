@@ -216,7 +216,7 @@ while and(it <= maxIt, any(active))
            regularisationVelocity = zeros(video_dim);
            [x_loc, y_loc]         = find(region(:,:,ii));
            x_min                  = max(min(x_loc) - 2, 1);
-           x_max                  = min(max(x_loc) + 2, video_dim(2));
+           x_max                  = min(max(x_loc) + 2, video_dim(1));
            y_min                  = max(min(y_loc) - 2, 1);
            y_max                  = min(max(y_loc) + 2, video_dim(2));
            if and(x_max > x_min, y_max > y_min)
